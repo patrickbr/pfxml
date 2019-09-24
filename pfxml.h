@@ -4,6 +4,9 @@
 #ifndef PFXML_H_
 #define PFXML_H_
 
+#include <cassert>
+#include <fcntl.h>
+#include <unistd.h>
 #include <cstring>
 #include <fstream>
 #include <map>
