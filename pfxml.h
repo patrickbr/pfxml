@@ -319,18 +319,18 @@ struct attr_cmp {
 
 struct parser_state {
   parser_state() : s(NONE), hanging(0), off(0) {}
-  std::stack<std::string> tagStack;
+  std::stack<std::string> tag_stack;
   state s;
   size_t hanging;
   int64_t off;
 };
 
-typedef std::map<const char*, const char*, attr_cmp> AttrMap;
+typedef std::map<const char*, const char*, attr_cmp> attr_map;
 
 struct tag {
   const char* name;
   const char* text;
-  AttrMap attrs;
+  pfxml::attr_map attrs;
 };
 
 class file {
@@ -352,9 +352,9 @@ class file {
   int _file;
   parser_state _s;
   parser_state _prevs;
-  char** _buffer;
+  char** _buf;
   char* _c;
-  int64_t _lastBytes;
+  int64_t _last_bytes;
 
   const char* _tmp;
   const char* _tmp2;
@@ -362,30 +362,35 @@ class file {
   size_t _which;
   std::string _path;
 
-  int64_t _totReadBef;
-  int64_t _lastNewData;
+  int64_t _tot_read_bef;
+  int64_t _last_new_data;
 
   tag _ret;
 
   static size_t utf8(size_t cp, char* out);
-  const char* emptyStr = "";
+  const char* empty_str = "";
 };
 
 // _____________________________________________________________________________
 inline file::file(const std::string& path)
-    : _file(0), _c(0), _lastBytes(0), _which(0), _path(path), _totReadBef(0) {
-  _buffer = new char*[2];
-  _buffer[0] = new char[BUFFER_S + 1];
-  _buffer[1] = new char[BUFFER_S + 1];
+    : _file(0),
+      _c(0),
+      _last_bytes(0),
+      _which(0),
+      _path(path),
+      _tot_read_bef(0) {
+  _buf = new char*[2];
+  _buf[0] = new char[BUFFER_S + 1];
+  _buf[1] = new char[BUFFER_S + 1];
 
   reset();
 }
 
 // _____________________________________________________________________________
 inline file::~file() {
-  delete[] _buffer[0];
-  delete[] _buffer[1];
-  delete[] _buffer;
+  delete[] _buf[0];
+  delete[] _buf[1];
+  delete[] _buf;
   close(_file);
 }
 
@@ -394,7 +399,7 @@ inline void file::reset() {
   _which = 0;
   _s.s = NONE;
   _s.hanging = 0;
-  _totReadBef = 0;
+  _tot_read_bef = 0;
 
   if (_file) close(_file);
   _file = open(_path.c_str(), O_RDONLY);
@@ -404,16 +409,16 @@ inline void file::reset() {
   posix_fadvise(_file, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
 
-  _lastBytes = read(_file, _buffer[_which], BUFFER_S);
-  _lastNewData = _lastBytes;
-  _c = _buffer[_which];
-  while (!_s.tagStack.empty()) _s.tagStack.pop();
-  _s.tagStack.push("[root]");
+  _last_bytes = read(_file, _buf[_which], BUFFER_S);
+  _last_new_data = _last_bytes;
+  _c = _buf[_which];
+  while (!_s.tag_stack.empty()) _s.tag_stack.pop();
+  _s.tag_stack.push("[root]");
   _prevs = _s;
 }
 
 // _____________________________________________________________________________
-inline size_t file::level() const { return _s.tagStack.size() - _s.hanging; }
+inline size_t file::level() const { return _s.tag_stack.size() - _s.hanging; }
 
 // _____________________________________________________________________________
 inline parser_state file::state() { return _prevs; }
@@ -424,10 +429,10 @@ inline void file::set_state(const parser_state& s) {
   _prevs = s;
 
   lseek(_file, _s.off, SEEK_SET);
-  _totReadBef = _s.off;
-  _lastBytes = read(_file, _buffer[_which], BUFFER_S);
-  _lastNewData = _lastBytes;
-  _c = _buffer[_which];
+  _tot_read_bef = _s.off;
+  _last_bytes = read(_file, _buf[_which], BUFFER_S);
+  _last_new_data = _last_bytes;
+  _c = _buf[_which];
 
   next();
 }
@@ -437,24 +442,24 @@ inline const tag& file::get() const { return _ret; }
 
 // _____________________________________________________________________________
 inline bool file::next() {
-  if (!_s.tagStack.size()) return false;
+  if (!_s.tag_stack.size()) return false;
   // avoid too much stack copying
-  if (_prevs.tagStack.size() != _s.tagStack.size() ||
-      _prevs.tagStack.top() != _s.tagStack.top()) {
-    _prevs.tagStack = _s.tagStack;
+  if (_prevs.tag_stack.size() != _s.tag_stack.size() ||
+      _prevs.tag_stack.top() != _s.tag_stack.top()) {
+    _prevs.tag_stack = _s.tag_stack;
   }
   _prevs.s = _s.s;
   _prevs.hanging = _s.hanging;
   _prevs.off =
-      _totReadBef + (_c - _buffer[_which]) - (_lastBytes - _lastNewData);
+      _tot_read_bef + (_c - _buf[_which]) - (_last_bytes - _last_new_data);
 
   if (_s.hanging) _s.hanging--;
   _ret.name = 0;
-  _ret.text = emptyStr;
+  _ret.text = empty_str;
   _ret.attrs.clear();
   void* i;
-  while (_lastBytes) {
-    for (; _c - _buffer[_which] < _lastBytes; ++_c) {
+  while (_last_bytes) {
+    for (; _c - _buf[_which] < _last_bytes; ++_c) {
       char c = *_c;
       switch (_s.s) {
         case NONE:
@@ -465,14 +470,14 @@ inline bool file::next() {
             continue;
           }
           _s.s = IN_TEXT;
-          _ret.name = emptyStr;
+          _ret.name = empty_str;
           _tmp = _c;
           continue;
 
         case IN_TEXT:
-          i = memchr(_c, '<', _lastBytes - (_c - _buffer[_which]));
+          i = memchr(_c, '<', _last_bytes - (_c - _buf[_which]));
           if (!i) {
-            _c = _buffer[_which] + _lastBytes;
+            _c = _buf[_which] + _last_bytes;
             continue;
           }
           _c = (char*)i;
@@ -487,7 +492,7 @@ inline bool file::next() {
             _s.s = IN_COMMENT_TENTATIVE2;
             continue;
           }
-          throw parse_exc("Expected comment", _path, _c, _buffer[_which],
+          throw parse_exc("Expected comment", _path, _c, _buf[_which],
                           _prevs.off);
 
         case IN_COMMENT_TENTATIVE2:
@@ -495,7 +500,7 @@ inline bool file::next() {
             _s.s = IN_COMMENT;
             continue;
           }
-          throw parse_exc("Expected comment", _path, _c, _buffer[_which],
+          throw parse_exc("Expected comment", _path, _c, _buf[_which],
                           _prevs.off);
 
         case IN_COMMENT_CL_TENTATIVE:
@@ -515,9 +520,9 @@ inline bool file::next() {
         // fall through, we are still in comment
 
         case IN_COMMENT:
-          i = memchr(_c, '-', _lastBytes - (_c - _buffer[_which]));
+          i = memchr(_c, '-', _last_bytes - (_c - _buf[_which]));
           if (!i) {
-            _c = _buffer[_which] + _lastBytes;
+            _c = _buf[_which] + _last_bytes;
             continue;
           }
           _c = (char*)i;
@@ -553,17 +558,17 @@ inline bool file::next() {
             continue;
           } else if (c == '>') {
             _s.hanging++;
-            _s.tagStack.push(_ret.name);
+            _s.tag_stack.push(_ret.name);
             _s.s = WS_SKIP;
             continue;
           }
-          throw parse_exc("Expected valid tag", _path, _c, _buffer[_which],
+          throw parse_exc("Expected valid tag", _path, _c, _buf[_which],
                           _prevs.off);
 
         case IN_ATTRVAL_SQ:
-          i = memchr(_c, '\'', _lastBytes - (_c - _buffer[_which]));
+          i = memchr(_c, '\'', _last_bytes - (_c - _buf[_which]));
           if (!i) {
-            _c = _buffer[_which] + _lastBytes;
+            _c = _buf[_which] + _last_bytes;
             continue;
           }
           _c = (char*)i;
@@ -573,9 +578,9 @@ inline bool file::next() {
           continue;
 
         case IN_ATTRVAL_DQ:
-          i = memchr(_c, '"', _lastBytes - (_c - _buffer[_which]));
+          i = memchr(_c, '"', _last_bytes - (_c - _buf[_which]));
           if (!i) {
-            _c = _buffer[_which] + _lastBytes;
+            _c = _buf[_which] + _last_bytes;
             continue;
           }
           _c = (char*)i;
@@ -596,8 +601,8 @@ inline bool file::next() {
             _tmp2 = _c + 1;
             continue;
           }
-          throw parse_exc("Expected attribute value", _path, _c,
-                          _buffer[_which], _prevs.off);
+          throw parse_exc("Expected attribute value", _path, _c, _buf[_which],
+                          _prevs.off);
 
         case IN_ATTRKEY:
           if (std::isspace(c)) {
@@ -613,7 +618,7 @@ inline bool file::next() {
           }
 
           throw parse_exc("Expected attribute key char or =", _path, _c,
-                          _buffer[_which], _prevs.off);
+                          _buf[_which], _prevs.off);
 
         case AFTER_ATTRKEY:
           if (std::isspace(c))
@@ -624,7 +629,7 @@ inline bool file::next() {
           }
           throw parse_exc(
               std::string("Expected attribute value for '") + _tmp + "'.",
-              _path, _c, _buffer[_which], _prevs.off);
+              _path, _c, _buf[_which], _prevs.off);
 
         case IN_TAG_NAME:
           if (std::isspace(c)) {
@@ -634,7 +639,7 @@ inline bool file::next() {
           } else if (c == '>') {
             *_c = 0;
             _s.hanging++;
-            _s.tagStack.push(_ret.name);
+            _s.tag_stack.push(_ret.name);
             _s.s = WS_SKIP;
             continue;
           } else if (c == '/') {
@@ -663,13 +668,13 @@ inline bool file::next() {
             continue;
           } else if (c == '>') {
             *_c = 0;
-            if (_tmp != _s.tagStack.top()) {
+            if (_tmp != _s.tag_stack.top()) {
               throw parse_exc(std::string("Closing wrong tag '<") + _tmp +
                                   ">', expected close of '<" +
-                                  _s.tagStack.top() + ">'.",
-                              _path, _c, _buffer[_which], _prevs.off);
+                                  _s.tag_stack.top() + ">'.",
+                              _path, _c, _buf[_which], _prevs.off);
             }
-            _s.tagStack.pop();
+            _s.tag_stack.pop();
             _s.s = NONE;
             continue;
           }
@@ -678,18 +683,17 @@ inline bool file::next() {
           if (std::isspace(c))
             continue;
           else if (c == '>') {
-            if (_tmp != _s.tagStack.top()) {
+            if (_tmp != _s.tag_stack.top()) {
               throw parse_exc(std::string("Closing wrong tag '<") + _tmp +
                                   ">', expected close of '<" +
-                                  _s.tagStack.top() + ">'.",
-                              _path, _c, _buffer[_which], _prevs.off);
+                                  _s.tag_stack.top() + ">'.",
+                              _path, _c, _buf[_which], _prevs.off);
             }
-            _s.tagStack.pop();
+            _s.tag_stack.pop();
             _s.s = NONE;
             continue;
           }
-          throw parse_exc("Expected '>'", _path, _c, _buffer[_which],
-                          _prevs.off);
+          throw parse_exc("Expected '>'", _path, _c, _buf[_which], _prevs.off);
 
         case AW_CLOSING:
           if (c == '>') {
@@ -707,37 +711,37 @@ inline bool file::next() {
     // buffer ended, read new stuff, but copy remaining if needed
     size_t off = 0;
     if (_s.s == IN_TAG_NAME) {  //|| IN_TAG_NAME_META) {
-      off = _lastBytes - (_ret.name - _buffer[_which]);
-      memmove(_buffer[!_which], _ret.name, off);
-      _ret.name = _buffer[!_which];
+      off = _last_bytes - (_ret.name - _buf[_which]);
+      memmove(_buf[!_which], _ret.name, off);
+      _ret.name = _buf[!_which];
     } else if (_s.s == IN_TAG_NAME_CLOSE || _s.s == IN_ATTRKEY ||
                _s.s == IN_TEXT) {
-      off = _lastBytes - (_tmp - _buffer[_which]);
-      memmove(_buffer[!_which], _tmp, off);
-      _tmp = _buffer[!_which];
+      off = _last_bytes - (_tmp - _buf[_which]);
+      memmove(_buf[!_which], _tmp, off);
+      _tmp = _buf[!_which];
     } else if (_s.s == IN_ATTRVAL_SQ || _s.s == IN_ATTRVAL_DQ) {
-      off = _lastBytes - (_tmp2 - _buffer[_which]);
-      memmove(_buffer[!_which], _tmp2, off);
-      _tmp2 = _buffer[!_which];
+      off = _last_bytes - (_tmp2 - _buf[_which]);
+      memmove(_buf[!_which], _tmp2, off);
+      _tmp2 = _buf[!_which];
     }
 
     assert(off <= BUFFER_S);
 
-    size_t readb = read(_file, _buffer[!_which] + off, BUFFER_S - off);
+    size_t readb = read(_file, _buf[!_which] + off, BUFFER_S - off);
     if (!readb) break;
-    _totReadBef += _lastNewData;
+    _tot_read_bef += _last_new_data;
     _which = !_which;
-    _lastNewData = readb;
-    _lastBytes = _lastNewData + off;
-    _c = _buffer[_which] + off;
+    _last_new_data = readb;
+    _last_bytes = _last_new_data + off;
+    _c = _buf[_which] + off;
   }
 
-  if (_s.tagStack.size()) {
-    if (_s.tagStack.top() != "[root]") {
-      throw parse_exc("XML tree not complete", _path, _c, _buffer[_which],
+  if (_s.tag_stack.size()) {
+    if (_s.tag_stack.top() != "[root]") {
+      throw parse_exc("XML tree not complete", _path, _c, _buf[_which],
                       _prevs.off);
     }
-    _s.tagStack.pop();
+    _s.tag_stack.pop();
   }
   _s.s = NONE;
   _ret.name = "[root]";
@@ -754,13 +758,13 @@ inline std::string file::decode(const char* str) {
   const char* c = strchr(str, '&');
   if (!c) return str;
 
-  char* decRet = new char[strlen(str) + 1];
+  char* dec_ret = new char[strlen(str) + 1];
   const char* last = str;
-  char* dstPt = decRet;
+  char* dst_pt = dec_ret;
 
   for (; c != 0; c = strchr(c + 1, '&')) {
-    memcpy(dstPt, last, c - last);
-    dstPt += c - last;
+    memcpy(dst_pt, last, c - last);
+    dst_pt += c - last;
     last = c;
 
     if (*(c + 1) == '#') {
@@ -773,7 +777,7 @@ inline std::string file::decode(const char* str) {
         cp = strtoul(c + 2, &tail, 10);
 
       if (*tail == ';' && cp <= 0x1FFFFF && !errno) {
-        dstPt += utf8(cp, dstPt);
+        dst_pt += utf8(cp, dst_pt);
         last = tail + 1;
       }
     } else {
@@ -785,8 +789,8 @@ inline std::string file::decode(const char* str) {
         const auto it = ENTITIES.find(ent);
         if (it != ENTITIES.end()) {
           const char* utf8 = it->second;
-          memcpy(dstPt, utf8, strlen(utf8));
-          dstPt += strlen(utf8);
+          memcpy(dst_pt, utf8, strlen(utf8));
+          dst_pt += strlen(utf8);
           last += strlen(ent) + 2;
         }
         delete[] ent;
@@ -794,9 +798,9 @@ inline std::string file::decode(const char* str) {
     }
   }
 
-  strcpy(dstPt, last);
-  std::string ret(decRet);
-  delete[] decRet;
+  strcpy(dst_pt, last);
+  std::string ret(dec_ret);
+  delete[] dec_ret;
   return ret;
 }
 
