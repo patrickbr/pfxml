@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <vector>
 #include <sstream>
 #include <stack>
 #include <string>
@@ -314,12 +315,6 @@ class parse_exc : public std::exception {
   std::string _msg;
 };
 
-struct attr_cmp {
-  bool operator()(const char* const& a, const char* const& b) const {
-    return std::strcmp(a, b) < 0;
-  }
-};
-
 struct parser_state {
   parser_state() : s(NONE), hanging(0), off(0) {}
   std::stack<std::string> tag_stack;
@@ -328,7 +323,7 @@ struct parser_state {
   int64_t off;
 };
 
-typedef std::map<const char*, const char*, attr_cmp> attr_map;
+typedef std::vector<std::pair<const char*, const char*>> attr_map;
 
 struct tag {
   const char* name;
@@ -577,7 +572,7 @@ inline bool file::next() {
           _c = (char*)i;
           _s.s = IN_TAG;
           *_c = 0;
-          _ret.attrs[_tmp] = _tmp2;
+          _ret.attrs.push_back({_tmp, _tmp2});
           continue;
 
         case IN_ATTRVAL_DQ:
@@ -589,7 +584,7 @@ inline bool file::next() {
           _c = (char*)i;
           _s.s = IN_TAG;
           *_c = 0;
-          _ret.attrs[_tmp] = _tmp2;
+          _ret.attrs.push_back({_tmp, _tmp2});
           continue;
 
         case AW_IN_ATTRVAL:

@@ -31,7 +31,7 @@ In case the XML was malformed, an exception is thrown.
 
 ## Speed
 
-No thorough performance evaluation yet. Searching `switzerland-latest.osm` (5.8 GB) for the ID of the first defined `<way>` object takes roughly 30 seconds when compiled with `-O3` on an Intel(R) Core(TM) i5 with 2 GHz and a SSD. For comparison, finding the first `<way>` object with GNU grep takes 17 seconds on the same machine (and would fail if the string `"<way>"` is contained in some previous attribute or text element).
+No thorough performance evaluation yet. Searching `switzerland-latest.osm` (5.8 GB) for the ID of the first defined `<way>` object takes roughly 25 seconds when compiled with `-O3` on an Intel(R) Core(TM) i5 with 2 GHz and a SSD. For comparison, finding the first `<way>` object with GNU grep takes 17 seconds on the same machine (and would fail if the string `"<way>"` is contained in some previous attribute or text element).
 
 ## TODOs
 
