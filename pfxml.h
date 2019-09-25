@@ -329,6 +329,12 @@ struct tag {
   const char* name;
   const char* text;
   pfxml::attr_map attrs;
+  const char* attr(const char* k) const {
+    for (const auto& kv : attrs) {
+      if (strcmp(kv.first, k) == 0) return kv.second;
+    }
+    return 0;
+  }
 };
 
 class file {
