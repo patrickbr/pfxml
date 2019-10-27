@@ -17,7 +17,7 @@
 
 namespace pfxml {
 
-static const size_t BUFFER_S = 16 * 1024;
+static const size_t BUFFER_S = 32 * 1024 * 1024;
 
 enum state {
   NONE,

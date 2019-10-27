@@ -16,7 +16,7 @@ pfxml::file xml("myfile.xml");
 while (xml.next()) {
   const auto& cur = xml.get();
   std::cout << cur.name << std::endl;  // .name is the xml tag name
-  std::cout << cur.level << std::endl;  // .level is the tags tree level
+  std::cout << xml.level() << std::endl;  // xml.level() is the current tags tree level
   std::cout << cur.attrs.size() << std::endl;  // .attrs contains the attributes
   std::cout << cur.attr("id") << std::endl;  // .attr returns the attribute
 }
