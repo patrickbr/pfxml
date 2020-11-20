@@ -479,6 +479,10 @@ inline bool file::next() {
           continue;
 
         case IN_TEXT:
+          if (_s.tag_stack.size() == 1) {
+            throw parse_exc("No text allowed here.", _path, _c, _buf[_which],
+                            _prevs.off);
+          }
           i = memchr(_c, '<', _last_bytes - (_c - _buf[_which]));
           if (!i) {
             _c = _buf[_which] + _last_bytes;
