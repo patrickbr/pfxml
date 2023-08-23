@@ -4,16 +4,20 @@
 #ifndef PFXML_H_
 #define PFXML_H_
 
-#include <cassert>
 #include <fcntl.h>
 #include <unistd.h>
+#ifndef PFXML_NO_ZLIB
+#include <zlib.h>
+#endif
+
+#include <cassert>
 #include <cstring>
 #include <fstream>
 #include <map>
-#include <vector>
 #include <sstream>
 #include <stack>
 #include <string>
+#include <vector>
 
 namespace pfxml {
 
@@ -354,6 +358,9 @@ class file {
 
  private:
   int _file;
+#ifndef PFXML_NO_ZLIB
+  gzFile _gzfile;
+#endif
   parser_state _s;
   parser_state _prevs;
   char** _buf;
@@ -371,6 +378,8 @@ class file {
 
   tag _ret;
 
+  bool _gzip;
+
   static size_t utf8(size_t cp, char* out);
   const char* empty_str = "";
 };
@@ -378,14 +387,23 @@ class file {
 // _____________________________________________________________________________
 inline file::file(const std::string& path)
     : _file(0),
+#ifndef PFXML_NO_ZLIB
+      _gzfile(0),
+#endif
       _c(0),
       _last_bytes(0),
       _which(0),
       _path(path),
-      _tot_read_bef(0) {
+      _tot_read_bef(0),
+      _gzip(false) {
   _buf = new char*[2];
   _buf[0] = new char[BUFFER_S + 1];
   _buf[1] = new char[BUFFER_S + 1];
+
+  if (path.size() > 2 && path[path.size() - 1] == 'z' &&
+      path[path.size() - 2] == 'g' && path[path.size() - 3] == '.') {
+    _gzip = true;
+  }
 
   reset();
 }
@@ -395,7 +413,13 @@ inline file::~file() {
   delete[] _buf[0];
   delete[] _buf[1];
   delete[] _buf;
-  close(_file);
+  if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+    gzclose(_gzfile);
+#endif
+  } else {
+    close(_file);
+  }
 }
 
 // _____________________________________________________________________________
@@ -405,15 +429,46 @@ inline void file::reset() {
   _s.hanging = 0;
   _tot_read_bef = 0;
 
-  if (_file) close(_file);
-  _file = open(_path.c_str(), O_RDONLY);
-  if (_file < 0)
-    throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
-#ifdef __unix__
-  posix_fadvise(_file, 0, 0, POSIX_FADV_SEQUENTIAL);
+  if (_file) {
+    if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+      gzclose(_gzfile);
 #endif
+    } else {
+      close(_file);
+    }
+  }
 
-  _last_bytes = read(_file, _buf[_which], BUFFER_S);
+  if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+    _gzfile = gzopen(_path.c_str(), "r");
+    if (_gzfile == Z_NULL)
+      throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+#else
+    throw parse_exc(std::string("could not open gzip file, pfxml was compiled "
+                                "without zlib support"),
+                    _path, 0, 0, 0);
+#endif
+  } else {
+    if (_file < 0)
+      throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+    _file = open(_path.c_str(), O_RDONLY);
+  }
+
+  if (!_gzip) {
+#ifdef __unix__
+    posix_fadvise(_file, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+  }
+
+  if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+    _last_bytes = gzread(_gzfile, _buf[_which], BUFFER_S);
+#endif
+  } else {
+    _last_bytes = read(_file, _buf[_which], BUFFER_S);
+  }
+
   _last_new_data = _last_bytes;
   _c = _buf[_which];
   while (!_s.tag_stack.empty()) _s.tag_stack.pop();
@@ -432,9 +487,22 @@ inline void file::set_state(const parser_state& s) {
   _s = s;
   _prevs = s;
 
-  lseek(_file, _s.off, SEEK_SET);
+  if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+    gzseek(_gzfile, _s.off, SEEK_SET);
+#endif
+  } else {
+    lseek(_file, _s.off, SEEK_SET);
+  }
   _tot_read_bef = _s.off;
-  _last_bytes = read(_file, _buf[_which], BUFFER_S);
+
+  if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+    _last_bytes = gzread(_gzfile, _buf[_which], BUFFER_S);
+#endif
+  } else {
+    _last_bytes = read(_file, _buf[_which], BUFFER_S);
+  }
   _last_new_data = _last_bytes;
   _c = _buf[_which];
 
@@ -525,7 +593,7 @@ inline bool file::next() {
             continue;
           }
           _s.s = IN_COMMENT;
-        // fall through, we are still in comment
+          // fall through, we are still in comment
 
         case IN_COMMENT:
           i = memchr(_c, '-', _last_bytes - (_c - _buf[_which]));
@@ -735,7 +803,14 @@ inline bool file::next() {
 
     assert(off <= BUFFER_S);
 
-    size_t readb = read(_file, _buf[!_which] + off, BUFFER_S - off);
+    size_t readb = 0;
+    if (_gzip) {
+#ifndef PFXML_NO_ZLIB
+      readb = gzread(_gzfile, _buf[!_which] + off, BUFFER_S - off);
+#endif
+    } else {
+      readb = read(_file, _buf[!_which] + off, BUFFER_S - off);
+    }
     if (!readb) break;
     _tot_read_bef += _last_new_data;
     _which = !_which;
@@ -836,6 +911,6 @@ inline size_t file::utf8(size_t cp, char* out) {
 
   return 0;
 }
-}
+}  // namespace pfxml
 
 #endif  // PFXML_H_
