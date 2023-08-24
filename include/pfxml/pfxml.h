@@ -10,6 +10,10 @@
 #include <zlib.h>
 #endif
 
+#ifndef PFXML_NO_BZLIB
+#include <bzlib.h>
+#endif
+
 #include <cassert>
 #include <cstring>
 #include <fstream>
@@ -361,6 +365,10 @@ class file {
 #ifndef PFXML_NO_ZLIB
   gzFile _gzfile;
 #endif
+
+#ifndef PFXML_NO_BZLIB
+  BZFILE* _bzfile;
+#endif
   parser_state _s;
   parser_state _prevs;
   char** _buf;
@@ -379,6 +387,7 @@ class file {
   tag _ret;
 
   bool _gzip;
+  bool _bzip;
 
   static size_t utf8(size_t cp, char* out);
   const char* empty_str = "";
@@ -390,12 +399,16 @@ inline file::file(const std::string& path)
 #ifndef PFXML_NO_ZLIB
       _gzfile(0),
 #endif
+#ifndef PFXML_NO_BZLIB
+      _bzfile(0),
+#endif
       _c(0),
       _last_bytes(0),
       _which(0),
       _path(path),
       _tot_read_bef(0),
-      _gzip(false) {
+      _gzip(false),
+      _bzip(false) {
   _buf = new char*[2];
   _buf[0] = new char[BUFFER_S + 1];
   _buf[1] = new char[BUFFER_S + 1];
@@ -403,6 +416,12 @@ inline file::file(const std::string& path)
   if (path.size() > 2 && path[path.size() - 1] == 'z' &&
       path[path.size() - 2] == 'g' && path[path.size() - 3] == '.') {
     _gzip = true;
+  }
+
+  if (path.size() > 3 && path[path.size() - 1] == '2' &&
+      path[path.size() - 2] == 'z' && path[path.size() - 3] == 'b' &&
+      path[path.size() - 4] == '.') {
+    _bzip = true;
   }
 
   reset();
@@ -416,6 +435,11 @@ inline file::~file() {
   if (_gzip) {
 #ifndef PFXML_NO_ZLIB
     gzclose(_gzfile);
+#endif
+  } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+    int err;
+    BZ2_bzReadClose(&err, _bzfile);
 #endif
   } else {
     close(_file);
@@ -434,6 +458,11 @@ inline void file::reset() {
 #ifndef PFXML_NO_ZLIB
       gzclose(_gzfile);
 #endif
+    } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+      int err;
+      BZ2_bzReadClose(&err, _bzfile);
+#endif
     } else {
       close(_file);
     }
@@ -449,13 +478,29 @@ inline void file::reset() {
                                 "without zlib support"),
                     _path, 0, 0, 0);
 #endif
+  } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+    FILE* f = fopen(_path.c_str(), "r");
+    int err;
+    if (!f) throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+
+    _bzfile = BZ2_bzReadOpen(&err, f, 0, 0, NULL, 0);
+
+    if (err != BZ_OK) {
+      throw parse_exc(std::string("could not read bzip file"), _path, 0, 0, 0);
+    }
+#else
+    throw parse_exc(std::string("could not open bzip file, pfxml was compiled "
+                                "without bzlib support"),
+                    _path, 0, 0, 0);
+#endif
   } else {
     if (_file < 0)
       throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
     _file = open(_path.c_str(), O_RDONLY);
   }
 
-  if (!_gzip) {
+  if (!_gzip && !_bzip) {
 #ifdef __unix__
     posix_fadvise(_file, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
@@ -464,6 +509,11 @@ inline void file::reset() {
   if (_gzip) {
 #ifndef PFXML_NO_ZLIB
     _last_bytes = gzread(_gzfile, _buf[_which], BUFFER_S);
+#endif
+  } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+    int err;
+    _last_bytes = BZ2_bzRead(&err, _bzfile, _buf[_which], BUFFER_S);
 #endif
   } else {
     _last_bytes = read(_file, _buf[_which], BUFFER_S);
@@ -491,6 +541,36 @@ inline void file::set_state(const parser_state& s) {
 #ifndef PFXML_NO_ZLIB
     gzseek(_gzfile, _s.off, SEEK_SET);
 #endif
+  } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+    int err;
+
+    // simulate seek
+    BZ2_bzReadClose(&err, _bzfile);
+
+    FILE* f = fopen(_path.c_str(), "r");
+    if (!f) throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+
+    _bzfile = BZ2_bzReadOpen(&err, f, 0, 0, NULL, 0);
+
+    if (err != BZ_OK) {
+      throw parse_exc(std::string("could not read bzip file"), _path, 0, 0, 0);
+    }
+
+    int64_t readSoFar = 0;
+
+    while (err == BZ_OK) {
+      int readb;
+      if (readSoFar + int64_t(BUFFER_S) > _s.off) {
+        readb = BZ2_bzRead(&err, _bzfile, _buf[_which], _s.off - readSoFar);
+      } else {
+        readb = BZ2_bzRead(&err, _bzfile, _buf[_which], BUFFER_S);
+      }
+      if (readb == 0) break;
+      readSoFar += readb;
+    }
+    assert(readSoFar == _s.off);
+#endif
   } else {
     lseek(_file, _s.off, SEEK_SET);
   }
@@ -499,6 +579,11 @@ inline void file::set_state(const parser_state& s) {
   if (_gzip) {
 #ifndef PFXML_NO_ZLIB
     _last_bytes = gzread(_gzfile, _buf[_which], BUFFER_S);
+#endif
+  } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+    int err;
+    _last_bytes = BZ2_bzRead(&err, _bzfile, _buf[_which], BUFFER_S);
 #endif
   } else {
     _last_bytes = read(_file, _buf[_which], BUFFER_S);
@@ -807,6 +892,11 @@ inline bool file::next() {
     if (_gzip) {
 #ifndef PFXML_NO_ZLIB
       readb = gzread(_gzfile, _buf[!_which] + off, BUFFER_S - off);
+#endif
+    } else if (_bzip) {
+#ifndef PFXML_NO_BZLIB
+      int err;
+      readb = BZ2_bzRead(&err, _bzfile, _buf[!_which] + off, BUFFER_S - off);
 #endif
     } else {
       readb = read(_file, _buf[!_which] + off, BUFFER_S - off);
