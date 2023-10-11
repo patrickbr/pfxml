@@ -369,6 +369,7 @@ class file {
 #ifndef PFXML_NO_BZLIB
   BZFILE* _bzfile;
 #endif
+  FILE* _bzfhandle = 0;
   parser_state _s;
   parser_state _prevs;
   char** _buf;
@@ -444,6 +445,7 @@ inline file::~file() {
   } else {
     close(_file);
   }
+  if (_bzfhandle) fclose(_bzfhandle);
 }
 
 // _____________________________________________________________________________
@@ -480,11 +482,12 @@ inline void file::reset() {
 #endif
   } else if (_bzip) {
 #ifndef PFXML_NO_BZLIB
-    FILE* f = fopen(_path.c_str(), "r");
+    _bzfhandle = fopen(_path.c_str(), "r");
     int err;
-    if (!f) throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+    if (!_bzfhandle)
+      throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
 
-    _bzfile = BZ2_bzReadOpen(&err, f, 0, 0, NULL, 0);
+    _bzfile = BZ2_bzReadOpen(&err, _bzfhandle, 0, 0, NULL, 0);
 
     if (err != BZ_OK) {
       throw parse_exc(std::string("could not read bzip file"), _path, 0, 0, 0);
