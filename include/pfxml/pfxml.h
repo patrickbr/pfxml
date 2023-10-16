@@ -398,7 +398,7 @@ class file {
 inline file::file(const std::string& path)
     : _file(0),
 #ifndef PFXML_NO_ZLIB
-      _gzfile(0),
+      _gzfile(Z_NULL),
 #endif
 #ifndef PFXML_NO_BZLIB
       _bzfile(0),
@@ -435,17 +435,23 @@ inline file::~file() {
   delete[] _buf;
   if (_gzip) {
 #ifndef PFXML_NO_ZLIB
-    gzclose(_gzfile);
+    if (_gzfile != Z_NULL) {
+      gzclose(_gzfile);
+      _gzfile = Z_NULL;
+    }
 #endif
   } else if (_bzip) {
 #ifndef PFXML_NO_BZLIB
-    int err;
-    BZ2_bzReadClose(&err, _bzfile);
+    if (_bzfile) {
+      int err;
+      BZ2_bzReadClose(&err, _bzfile);
+      _bzfile = nullptr;
+    }
 #endif
+    if (_bzfhandle) fclose(_bzfhandle);
   } else {
     close(_file);
   }
-  if (_bzfhandle) fclose(_bzfhandle);
 }
 
 // _____________________________________________________________________________
@@ -458,19 +464,25 @@ inline void file::reset() {
   if (_file) {
     if (_gzip) {
 #ifndef PFXML_NO_ZLIB
-      gzclose(_gzfile);
+      if (_gzfile != Z_NULL) {
+        gzclose(_gzfile);
+        _gzfile = Z_NULL;
+      }
 #endif
     } else if (_bzip) {
 #ifndef PFXML_NO_BZLIB
-      int err;
-      BZ2_bzReadClose(&err, _bzfile);
+      if (_bzfile) {
+        int err;
+        BZ2_bzReadClose(&err, _bzfile);
+        _bzfile = nullptr;
+      }
+      if (_bzfhandle) {
+        fclose(_bzfhandle);
+        _bzfhandle = 0;
+      }
 #endif
     } else {
       close(_file);
-    }
-    if (_bzfhandle) {
-      fclose(_bzfhandle);
-      _bzfhandle = 0;
     }
   }
 
@@ -493,7 +505,7 @@ inline void file::reset() {
 
     _bzfile = BZ2_bzReadOpen(&err, _bzfhandle, 0, 0, NULL, 0);
 
-    if (err != BZ_OK) {
+    if (!_bzfile || err != BZ_OK) {
       throw parse_exc(std::string("could not read bzip file"), _path, 0, 0, 0);
     }
 #else
@@ -502,9 +514,9 @@ inline void file::reset() {
                     _path, 0, 0, 0);
 #endif
   } else {
+    _file = open(_path.c_str(), O_RDONLY);
     if (_file < 0)
       throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
-    _file = open(_path.c_str(), O_RDONLY);
   }
 
   if (!_gzip && !_bzip) {
@@ -553,19 +565,23 @@ inline void file::set_state(const parser_state& s) {
     int err;
 
     // simulate seek
-    BZ2_bzReadClose(&err, _bzfile);
+    if (_bzfile) {
+      int err;
+      BZ2_bzReadClose(&err, _bzfile);
+      _bzfile = 0;
+    }
     if (_bzfhandle) {
       fclose(_bzfhandle);
       _bzfhandle = 0;
     }
 
     _bzfhandle = fopen(_path.c_str(), "r");
-    if (_bzfhandle)
-      throw parse_exc(std::string("could not open file"), _path, 0, 0, 0);
+    if (!_bzfhandle)
+      throw parse_exc(std::string("could not open file A"), _path, 0, 0, 0);
 
     _bzfile = BZ2_bzReadOpen(&err, _bzfhandle, 0, 0, NULL, 0);
 
-    if (err != BZ_OK) {
+    if (!_bzfile || err != BZ_OK) {
       throw parse_exc(std::string("could not read bzip file"), _path, 0, 0, 0);
     }
 
