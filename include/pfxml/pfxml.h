@@ -17,6 +17,7 @@
 #include <cassert>
 #include <cstring>
 #include <fstream>
+#include <locale>
 #include <map>
 #include <sstream>
 #include <stack>
@@ -414,13 +415,15 @@ inline file::file(const std::string& path)
   _buf[0] = new char[BUFFER_S + 1];
   _buf[1] = new char[BUFFER_S + 1];
 
-  if (path.size() > 2 && path[path.size() - 1] == 'z' &&
-      path[path.size() - 2] == 'g' && path[path.size() - 3] == '.') {
+  if (path.size() > 2 && std::tolower(path[path.size() - 1]) == 'z' &&
+      std::tolower(path[path.size() - 2]) == 'g' &&
+      path[path.size() - 3] == '.') {
     _gzip = true;
   }
 
   if (path.size() > 3 && path[path.size() - 1] == '2' &&
-      path[path.size() - 2] == 'z' && path[path.size() - 3] == 'b' &&
+      std::tolower(path[path.size() - 2]) == 'z' &&
+      std::tolower(path[path.size() - 3]) == 'b' &&
       path[path.size() - 4] == '.') {
     _bzip = true;
   }
